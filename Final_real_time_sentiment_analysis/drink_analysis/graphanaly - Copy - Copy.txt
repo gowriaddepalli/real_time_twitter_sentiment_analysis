@@ -1,0 +1,161 @@
+library(twitteR)
+library(plyr)
+library("wordcloud")
+library("ROAuth")
+library("tm")
+library(RCurl)
+library(ggplot2)
+library(stringr)
+
+reqURL <- "https://api.twitter.com/oauth/request_token"
+ 
+accessURL <- "https://api.twitter.com/oauth/access_token"
+ 
+authURL <- "https://api.twitter.com/oauth/authorize"
+ 
+consumerKey <- "rQuoc2RbMKvdGVnkKyBtcMeXp"
+ 
+consumerSecret <- "8zxYZQc2xKdjavBy4XsY2E9qB61IKKtUTksKz2g7XEmCKZFk0o"
+ 
+twitCred <- OAuthFactory$new(consumerKey=consumerKey,consumerSecret=consumerSecret,requestURL=reqURL,accessURL=accessURL,authURL=authURL)
+ 
+download.file(url="http://curl.haxx.se/ca/cacert.pem", destfile="cacert.pem")
+ 
+twitCred$handshake(cainfo="cacert.pem")
+ 
+registerTwitterOAuth(twitCred)
+******************************************************************************************************************************************
+# function score.sentiment
+score.sentiment = function(sentences, pos.words, neg.words, .progress='none')
+ 
+{
+ 
+require(plyr)
+ 
+require(stringr)
+ 
+scores = laply(sentences, function(sentence, pos.words, neg.words) {
+ 
+sentence = gsub('[[:punct:]]', '', sentence)
+ 
+sentence = gsub('[[:cntrl:]]', '', sentence)
+ 
+sentence = gsub('\\d+', '', sentence)
+ 
+sentence = tolower(sentence)
+ 
+word.list = str_split(sentence, '\\s+')
+ 
+words = unlist(word.list)
+ 
+pos.matches = match(words, pos.words)
+ 
+neg.matches = match(words, neg.words)
+ 
+pos.matches = !is.na(pos.matches)
+ 
+neg.matches = !is.na(neg.matches)
+ 
+score = sum(pos.matches) - sum(neg.matches)
+ 
+return(score)
+ 
+}, pos.words, neg.words, .progress=.progress )
+ 
+scores.df = data.frame(score=scores, text=sentences)
+
+ 
+return(scores.df)
+ 
+}
+
+
+
+**********************************************************************************************************************************
+pos = scan('c:/Users/S/Desktop/twitter/positive.txt', what='character', comment.char=';')
+ 
+neg = scan('c:/Users/S/Desktop/twitter/negative.txt', what='character', comment.char=';')
+****************************************************************************************************************************************
+# tweets with drinks
+wine_tweets = searchTwitter("#wine", n=200,cainfo="cacert.pem")
+beer_tweets = searchTwitter("#beer", n=200,cainfo="cacert.pem")
+cofe_tweets = searchTwitter("#coffee", n=200,cainfo="cacert.pem")
+soda_tweets = searchTwitter("#soda", n=200,cainfo="cacert.pem")
+
+
+# get text
+*******************
+wine.text = laply(wine_tweets,function(t)t$getText())
+beer.text = laply(beer_tweets,function(t)t$getText())
+cofe.text = laply(cofe_tweets,function(t)t$getText())
+soda.text = laply(soda_tweets,function(t)t$getText())
+****************************
+
+# how many tweets of each drink
+nd = c(length(wine.text), length(beer.text), length(cofe.text), length(soda.text))
+
+# join texts
+drinks = c(wine.text, beer.text, cofe.text, soda.text) 
+**************************************************************************************************************************************************************
+
+# apply function score.sentiment
+
+scores = score.sentiment(drinks, pos, neg, .progress='text')
+************
+# add variables to data frame
+scores$drink = factor(rep(c("wine", "beer", "coffee", "soda"), nd))
+scores$very.pos = as.numeric(scores$score >= 2)
+scores$very.neg = as.numeric(scores$score <= -2)
+
+# how many very positives and very negatives
+numpos = sum(scores$very.pos)
+numneg = sum(scores$very.neg)
+
+# global score
+global_score = round( 100 * numpos / (numpos + numneg) )
+************************************************************************************************************************************************************
+
+# colors
+cols = c("#7CAE00", "#00BFC4", "#F8766D", "#C77CFF")
+names(cols) = c("beer", "coffee", "soda", "wine")
+
+# boxplot
+***********************
+ggplot(scores, aes(x=drink, y=score, group=drink)) +
+geom_boxplot(aes(fill=drink)) +
+scale_fill_manual(values=cols) +
+geom_jitter(colour="gray40",
+    position=position_jitter(width=0.2), alpha=0.3) +
+theme(title = element_text("Boxplot - Drink's Sentiment Scores"))
+************************************************************************************************************************************************************
+# barplot of average score
+meanscore = tapply(scores$score, scores$drink, mean)
+df = data.frame(drink=names(meanscore), meanscore=meanscore)
+df$drinks <- reorder(df$drink, df$meanscore)
+
+ggplot(df, aes(y=meanscore)) +
+geom_bar(data=df, aes(x=drinks, fill=drinks), stat='identity') +
+scale_fill_manual(values=cols[order(df$meanscore)]) +
+theme(title =element_text( "Average Sentiment Score"),
+    legend.position = "none")
+**********************************************************************************************************************************************************************
+# barplot of average very positive
+drink_pos = ddply(scores, .(drink), summarise, mean_pos=mean(very.pos))
+drink_pos$drinks <- reorder(drink_pos$drink, drink_pos$mean_pos)
+
+ggplot(drink_pos, aes(y=mean_pos)) +
+geom_bar(data=drink_pos, aes(x=drinks, fill=drinks), stat='identity') +
+scale_fill_manual(values=cols[order(drink_pos$mean_pos)]) +
+theme(title = element_text("Average Very Positive Sentiment Score"),
+    legend.position = "none")
+********************************************************************************************************************************************
+# barplot of average very negative
+drink_neg = ddply(scores, .(drink), summarise, mean_neg=mean(very.neg))
+drink_neg$drinks <- reorder(drink_neg$drink, drink_neg$mean_neg)
+
+ggplot(drink_neg, aes(y=mean_neg)) +
+geom_bar(data=drink_neg, aes(x=drinks, fill=drinks),stat='identity') +
+scale_fill_manual(values=cols[order(drink_neg$mean_neg)]) +
+theme(title =element_text( "Average Very Negative Sentiment Score"),
+legend.position = "none")
+*******************************************************************************************************************
